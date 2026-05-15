@@ -63,17 +63,33 @@ query_params = st.query_params
 target_name = query_params.get("id")
 
 if target_name:
-    # 🔒 특정 의원 모드 (필터 숨김 & 본인 데이터만 표시)
+    # 🔒 특정 의원 모드 (읽기 전용, 본인 데이터만 표시하되 월/상태 필터 제공)
     st.title(f"🏛️ {target_name} 의원님 민원 현황")
     st.info(f"본 화면은 {target_name} 의원님 접수 민원 조회 페이지입니다.")
     
-    # 해당 의원의 데이터로만 고정
-    filtered_data = data[data['접수자'] == target_name].copy()
+    # 1차 필터링: 해당 의원의 데이터만 가져오기
+    base_data = data[data['접수자'] == target_name].copy()
+    
+    # 의원 전용 사이드바 필터 추가
+    st.sidebar.header(f"🔍 {target_name} 의원님 전용 검색")
+    
+    month_list = sorted(base_data['년월'].dropna().unique().tolist())
+    selected_months = st.sidebar.multiselect("📅 월별 선택", month_list, default=month_list)
+    
+    status_list = sorted(base_data['처리상태'].dropna().astype(str).unique().tolist())
+    selected_status = st.sidebar.multiselect("📌 처리상태 선택", status_list, default=status_list)
+    
+    # 2차 필터링: 사용자가 선택한 월/상태 적용
+    filtered_data = base_data.copy()
+    if selected_months: 
+        filtered_data = filtered_data[filtered_data['년월'].isin(selected_months)]
+    if selected_status: 
+        filtered_data = filtered_data[filtered_data['처리상태'].astype(str).isin(selected_status)]
 
 else:
     # 🔓 관리자 모드 (전체 필터 제공)
-    st.title("🗺️ 울산 중구의회 전체 민원 관리 대시보드 (관리자)")
-    st.sidebar.header("🔍 민원 검색 필터")
+    st.title("🗺️ 울산 중구의회 민원 관리 대시보드(관리자)")
+    st.sidebar.header("🔍 전체 민원 검색 필터")
 
     month_list = sorted(data['년월'].dropna().unique().tolist())
     selected_months = st.sidebar.multiselect("📅 월별 선택", month_list, default=month_list)
