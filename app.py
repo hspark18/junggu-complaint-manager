@@ -44,9 +44,9 @@ try:
         data['년월'] = data['접수일자_분석용'].dt.strftime('%Y-%m')
         data['접수일자'] = data['접수일자_분석용'].dt.strftime('%Y-%m-%d')
         
-        # 📌 핵심 로직: 2026년 5월까지는 제8대, 2026년 6월부터는 제9대로 분류
+        # 📌 핵심 로직: 2026년 6월까지는 제8대, 2026년 7월부터는 제9대로 분류
         data['의회기수'] = data['접수일자_분석용'].apply(
-            lambda x: '제8대' if pd.notnull(x) and x < pd.to_datetime('2026-06-01') else '제9대'
+            lambda x: '제8대' if pd.notnull(x) and x < pd.to_datetime('2026-07-01') else '제9대'
         )
 except:
     st.error("데이터 파일을 확인해주세요.")
