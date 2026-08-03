@@ -14,6 +14,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 KAKAO_API_KEY = "14298707d84729013520ca6d9c214656"
 CLEAN_KEY = KAKAO_API_KEY.encode('ascii', 'ignore').decode('ascii').strip()
 
+# 👥 제9대 의원 명단 (참고용/확인용)
+COUNCIL_9TH_MEMBERS = ["김태욱", "이명녀", "홍영진", "이재철", "최병호", "문기호", "김성민", "문승재", "김시현", "엄희순"]
+
 def get_lat_lng(address):
     url_addr = "https://dapi.kakao.com/v2/local/search/address.json"
     url_keyword = "https://dapi.kakao.com/v2/local/search/keyword.json"
@@ -33,13 +36,18 @@ def get_lat_lng(address):
 
 st.set_page_config(page_title="울산 중구의회 민원 관리 대시보드", layout="wide")
 
-# 1. 데이터 불러오기
+# 1. 데이터 불러오기 및 8대/9대 기수 분류
 try:
     data = pd.read_excel("민원데이터.xlsx")
     if '접수일자' in data.columns:
         data['접수일자_분석용'] = pd.to_datetime(data['접수일자'], errors='coerce')
         data['년월'] = data['접수일자_분석용'].dt.strftime('%Y-%m')
         data['접수일자'] = data['접수일자_분석용'].dt.strftime('%Y-%m-%d')
+        
+        # 📌 핵심 로직: 2026년 5월까지는 제8대, 2026년 6월부터는 제9대로 분류
+        data['의회기수'] = data['접수일자_분석용'].apply(
+            lambda x: '제8대' if pd.notnull(x) and x < pd.to_datetime('2026-06-01') else '제9대'
+        )
 except:
     st.error("데이터 파일을 확인해주세요.")
     st.stop()
@@ -53,7 +61,9 @@ for i, row in data.iterrows():
             data.at[i, '위도'], data.at[i, '경도'] = lat, lng
             new_coords = True
 if new_coords:
-    try: data.drop(columns=['접수일자_분석용', '년월'], errors='ignore').to_excel("민원데이터.xlsx", index=False)
+    try: 
+        # 원본 엑셀에 영향을 주지 않도록 파생 변수 드롭 후 저장
+        data.drop(columns=['접수일자_분석용', '년월', '의회기수'], errors='ignore').to_excel("민원데이터.xlsx", index=False)
     except: pass
 
 # =====================================================================
@@ -63,9 +73,12 @@ query_params = st.query_params
 target_name = query_params.get("id")
 
 if target_name:
-    # 🔒 특정 의원 모드 (읽기 전용, 본인 데이터만 표시하되 월/상태 필터 제공)
+    # 🔒 특정 의원 모드 (읽기 전용, 본인 데이터만 표시)
+    # 재선의원의 경우 이름(target_name)이 같으므로 8대, 9대 데이터가 끊김 없이 연속으로 조회됩니다.
     st.title(f"🏛️ {target_name} 의원님 민원 현황")
-    st.info(f"본 화면은 {target_name} 의원님 접수 민원 조회 페이지입니다.")
+    
+    is_9th_member = " (제9대 소속)" if target_name in COUNCIL_9TH_MEMBERS else ""
+    st.info(f"본 화면은 {target_name} 의원님{is_9th_member} 접수 민원 조회 페이지입니다.")
     
     # 1차 필터링: 해당 의원의 데이터만 가져오기
     base_data = data[data['접수자'] == target_name].copy()
@@ -73,14 +86,19 @@ if target_name:
     # 의원 전용 사이드바 필터 추가
     st.sidebar.header(f"🔍 {target_name} 의원님 전용 검색")
     
+    term_list = sorted(base_data['의회기수'].dropna().unique().tolist())
+    selected_terms = st.sidebar.multiselect("🏛️ 의회대수 선택", term_list, default=term_list)
+
     month_list = sorted(base_data['년월'].dropna().unique().tolist())
     selected_months = st.sidebar.multiselect("📅 월별 선택", month_list, default=month_list)
     
     status_list = sorted(base_data['처리상태'].dropna().astype(str).unique().tolist())
     selected_status = st.sidebar.multiselect("📌 처리상태 선택", status_list, default=status_list)
     
-    # 2차 필터링: 사용자가 선택한 월/상태 적용
+    # 2차 필터링: 기수, 월, 상태 적용
     filtered_data = base_data.copy()
+    if selected_terms: 
+        filtered_data = filtered_data[filtered_data['의회기수'].isin(selected_terms)]
     if selected_months: 
         filtered_data = filtered_data[filtered_data['년월'].isin(selected_months)]
     if selected_status: 
@@ -90,6 +108,9 @@ else:
     # 🔓 관리자 모드 (전체 필터 제공)
     st.title("🗺️ 울산 중구의회 민원 관리 대시보드(관리자)")
     st.sidebar.header("🔍 전체 민원 검색 필터")
+
+    term_list = sorted(data['의회기수'].dropna().unique().tolist())
+    selected_terms = st.sidebar.multiselect("🏛️ 의회대수 선택", term_list, default=term_list)
 
     month_list = sorted(data['년월'].dropna().unique().tolist())
     selected_months = st.sidebar.multiselect("📅 월별 선택", month_list, default=month_list)
@@ -101,6 +122,7 @@ else:
     selected_status = st.sidebar.multiselect("📌 처리상태 선택", status_list, default=status_list)
 
     filtered_data = data.copy()
+    if selected_terms: filtered_data = filtered_data[filtered_data['의회기수'].isin(selected_terms)]
     if selected_months: filtered_data = filtered_data[filtered_data['년월'].isin(selected_months)]
     if selected_members: filtered_data = filtered_data[filtered_data['접수자'].isin(selected_members)]
     if selected_status: filtered_data = filtered_data[filtered_data['처리상태'].astype(str).isin(selected_status)]
@@ -119,7 +141,7 @@ with col1:
     
     # 지도 범례
     legend_html = '''
-<div style="position: fixed; bottom: 50px; left: 50px; width: 140px; height: 140px; 
+    <div style="position: fixed; bottom: 50px; left: 50px; width: 140px; height: 140px; 
         border:2px solid grey; z-index:9999; font-size:14px; background-color: rgba(255, 255, 255, 0.8); 
         padding: 10px; border-radius: 5px; box-shadow: 3px 3px 5px rgba(0,0,0,0.2);">
         <b>📍민원 처리 상태</b><br>
@@ -143,7 +165,7 @@ with col1:
         elif '보류' in s: p_color = 'black'
         else: p_color = 'gray'
         
-        tooltip_text = f"[{row['접수일자']}] {row['접수자']} - {row['처리상태']}"
+        tooltip_text = f"[{row['의회기수']}] {row['접수자']} - {row['처리상태']}"
         popup_content = Popup(str(row['민원내용']), max_width=400)
         
         folium.Marker(
@@ -157,12 +179,12 @@ with col1:
 
 with col2:
     st.subheader("📊 민원 내역")
-    ordered_cols = ['민원번호', '접수일자', '민원지 주소', '민원내용', '접수자', '처리상태']
+    # 📌 의회기수를 표 첫 번째 항목으로 추가
+    ordered_cols = ['의회기수', '민원번호', '접수일자', '민원지 주소', '민원내용', '접수자', '처리상태']
     
     # 📥 엑셀 다운로드 버튼 (메모리에 엑셀 파일 생성)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        # 화면에 필터링된 현재 상태의 데이터만 엑셀로 변환
         filtered_data[ordered_cols].to_excel(writer, index=False, sheet_name='필터링_데이터')
     
     st.download_button(
