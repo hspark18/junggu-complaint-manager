@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 import folium
 from folium import Popup
-from folium.plugins import MarkerCluster  # 📌 겹치는 마커를 그룹화하기 위해 추가된 라이브러리
+from folium.plugins import MarkerCluster  # 📌 [개선1] 마커 클러스터링을 위한 라이브러리
 from streamlit_folium import st_folium
 import requests
 import urllib3
-import io  # 📌 엑셀 다운로드를 위해 추가된 라이브러리
+import io
 
 # 🛡️ 보안 설정
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -39,35 +39,51 @@ def get_lat_lng(address):
 
 st.set_page_config(page_title="울산 중구의회 민원 관리 대시보드", layout="wide")
 
-# 1. 데이터 불러오기 및 8대/9대 기수 분류
-try:
-    data = pd.read_excel("민원데이터.xlsx")
-    if '접수일자' in data.columns:
-        data['접수일자_분석용'] = pd.to_datetime(data['접수일자'], errors='coerce')
-        data['년월'] = data['접수일자_분석용'].dt.strftime('%Y-%m')
-        data['접수일자'] = data['접수일자_분석용'].dt.strftime('%Y-%m-%d')
-        
-        # 📌 핵심 로직: 2026년 6월까지는 제8대, 2026년 7월부터는 제9대로 분류
-        data['의회기수'] = data['접수일자_분석용'].apply(
-            lambda x: '제8대' if pd.notnull(x) and x < pd.to_datetime('2026-07-01') else '제9대'
-        )
-except:
-    st.error("데이터 파일을 확인해주세요.")
+# =====================================================================
+# 1. 데이터 불러오기 (📌 [개선2] 캐싱 적용으로 로딩 속도 최적화 🚀)
+# =====================================================================
+@st.cache_data
+def load_data():
+    try:
+        df = pd.read_excel("민원데이터.xlsx")
+        if '접수일자' in df.columns:
+            df['접수일자_분석용'] = pd.to_datetime(df['접수일자'], errors='coerce')
+            df['년월'] = df['접수일자_분석용'].dt.strftime('%Y-%m')
+            df['접수일자'] = df['접수일자_분석용'].dt.strftime('%Y-%m-%d')
+            
+            # 핵심 로직: 2026년 6월까지는 제8대, 2026년 7월부터는 제9대로 분류
+            df['의회기수'] = df['접수일자_분석용'].apply(
+                lambda x: '제8대' if pd.notnull(x) and x < pd.to_datetime('2026-07-01') else '제9대'
+            )
+        return df
+    except Exception as e:
+        return None
+
+# 데이터 로드 실행
+data = load_data()
+
+if data is None:
+    st.error("데이터 파일을 확인해주세요. '민원데이터.xlsx' 파일이 같은 폴더에 있어야 합니다.")
     st.stop()
 
+# =====================================================================
 # 2. 좌표 자동 저장
+# =====================================================================
 new_coords = False
 for i, row in data.iterrows():
     if pd.isna(row.get('위도')) or pd.isna(row.get('경도')):
         lat, lng = get_lat_lng(str(row['민원지 주소']))
         if lat and lng:
-            data.at[i, '위도'], data.at[i, '경도'] = lat, lng
+            data.at[i, '위도'] = lat
+            data.at[i, '경도'] = lng
             new_coords = True
 
 if new_coords:
     try: 
         # 원본 엑셀에 영향을 주지 않도록 파생 변수 드롭 후 저장
-        data.drop(columns=['접수일자_분석용', '년월', '의회기수'], errors='ignore').to_excel("민원데이터.xlsx", index=False)
+        save_df = data.drop(columns=['접수일자_분석용', '년월', '의회기수'], errors='ignore')
+        save_df.to_excel("민원데이터.xlsx", index=False)
+        st.cache_data.clear() # 📌 엑셀이 업데이트되었으므로 기존 기억(캐시)을 지워줌
     except: 
         pass
 
@@ -160,7 +176,7 @@ with col1:
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
     
-    # 📌 마커 클러스터 객체 생성 (겹치는 마커를 하나로 묶어줌)
+    # 📌 [개선1] 마커 클러스터 객체 생성 (겹치는 마커를 하나로 묶어줌)
     marker_cluster = MarkerCluster().add_to(m)
     
     for idx, row in valid_data.iterrows():
@@ -177,7 +193,7 @@ with col1:
         tooltip_text = f"[{row['의회기수']}] {row['접수자']} - {row['처리상태']}"
         popup_content = Popup(str(row['민원내용']), max_width=400)
         
-        # 📌 수정된 부분: m 대신 marker_cluster에 마커를 추가
+        # 📌 [개선1] m 대신 marker_cluster에 마커를 추가
         folium.Marker(
             location=[row['위도'], row['경도']],
             popup=popup_content,
@@ -189,7 +205,7 @@ with col1:
 
 with col2:
     st.subheader("📊 민원 내역")
-    # 📌 의회기수를 표 첫 번째 항목으로 추가
+    # 의회기수를 표 첫 번째 항목으로 추가
     ordered_cols = ['의회기수', '민원번호', '접수일자', '민원지 주소', '민원내용', '접수자', '처리상태']
     
     # 📥 엑셀 다운로드 버튼 (메모리에 엑셀 파일 생성)
