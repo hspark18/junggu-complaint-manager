@@ -139,10 +139,12 @@ with col1:
     st.subheader(f"📍 민원 발생 지도 (조회: {len(valid_data)}건)")
     m = folium.Map(location=[35.5696, 129.3327], zoom_start=14)
     
-    # 지도 범례
+# 지도 범례
     legend_html = '''
     <div style="position: fixed; bottom: 50px; left: 50px; width: 140px; height: 140px; 
-        border:2px solid grey; z-index:9999; font-size:14px; background-color: rgba(255, 255, 255, 0.8); 
+        border:2px solid grey; z-index:9999; font-size:14px; 
+        background-color: rgba(255, 255, 255, 0.9); /* 배경색 투명도 약간 낮춤 */
+        color: black; /* 👈 다크모드에서도 글씨가 보이도록 검은색 강제 지정 */
         padding: 10px; border-radius: 5px; box-shadow: 3px 3px 5px rgba(0,0,0,0.2);">
         <b>📍민원 처리 상태</b><br>
         <span style="color:blue;">●</span> 완료<br>
