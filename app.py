@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import folium
 from folium import Popup
+from folium.plugins import MarkerCluster  # 📌 겹치는 마커를 그룹화하기 위해 추가된 라이브러리
 from streamlit_folium import st_folium
 import requests
 import urllib3
@@ -27,12 +28,14 @@ def get_lat_lng(address):
         result = response.json()
         if result.get('documents'):
             return float(result['documents'][0]['y']), float(result['documents'][0]['x'])
+        
         response_kw = requests.get(url_keyword, headers=headers, params=params, verify=False)
         result_kw = response_kw.json()
         if result_kw.get('documents'):
             return float(result_kw['documents'][0]['y']), float(result_kw['documents'][0]['x'])
         return None, None
-    except: return None, None
+    except: 
+        return None, None
 
 st.set_page_config(page_title="울산 중구의회 민원 관리 대시보드", layout="wide")
 
@@ -60,11 +63,13 @@ for i, row in data.iterrows():
         if lat and lng:
             data.at[i, '위도'], data.at[i, '경도'] = lat, lng
             new_coords = True
+
 if new_coords:
     try: 
         # 원본 엑셀에 영향을 주지 않도록 파생 변수 드롭 후 저장
         data.drop(columns=['접수일자_분석용', '년월', '의회기수'], errors='ignore').to_excel("민원데이터.xlsx", index=False)
-    except: pass
+    except: 
+        pass
 
 # =====================================================================
 # 🔗 접속 모드 분기 (관리자 모드 vs 의원 전용 모드)
@@ -74,7 +79,6 @@ target_name = query_params.get("id")
 
 if target_name:
     # 🔒 특정 의원 모드 (읽기 전용, 본인 데이터만 표시)
-    # 재선의원의 경우 이름(target_name)이 같으므로 8대, 9대 데이터가 끊김 없이 연속으로 조회됩니다.
     st.title(f"🏛️ {target_name} 의원님 민원 현황")
     
     is_9th_member = " (제9대 소속)" if target_name in COUNCIL_9TH_MEMBERS else ""
@@ -139,12 +143,12 @@ with col1:
     st.subheader(f"📍 민원 발생 지도 (조회: {len(valid_data)}건)")
     m = folium.Map(location=[35.5696, 129.3327], zoom_start=14)
     
-# 지도 범례
+    # 지도 범례
     legend_html = '''
     <div style="position: fixed; bottom: 50px; left: 50px; width: 140px; height: 140px; 
         border:2px solid grey; z-index:9999; font-size:14px; 
-        background-color: rgba(255, 255, 255, 0.9); /* 배경색 투명도 약간 낮춤 */
-        color: black; /* 👈 다크모드에서도 글씨가 보이도록 검은색 강제 지정 */
+        background-color: rgba(255, 255, 255, 0.9);
+        color: black;
         padding: 10px; border-radius: 5px; box-shadow: 3px 3px 5px rgba(0,0,0,0.2);">
         <b>📍민원 처리 상태</b><br>
         <span style="color:blue;">●</span> 완료<br>
@@ -155,6 +159,9 @@ with col1:
     </div>
     '''
     m.get_root().html.add_child(folium.Element(legend_html))
+    
+    # 📌 마커 클러스터 객체 생성 (겹치는 마커를 하나로 묶어줌)
+    marker_cluster = MarkerCluster().add_to(m)
     
     for idx, row in valid_data.iterrows():
         s = str(row['처리상태']).strip()
@@ -170,12 +177,13 @@ with col1:
         tooltip_text = f"[{row['의회기수']}] {row['접수자']} - {row['처리상태']}"
         popup_content = Popup(str(row['민원내용']), max_width=400)
         
+        # 📌 수정된 부분: m 대신 marker_cluster에 마커를 추가
         folium.Marker(
             location=[row['위도'], row['경도']],
             popup=popup_content,
             tooltip=tooltip_text,
             icon=folium.Icon(color=p_color)
-        ).add_to(m)
+        ).add_to(marker_cluster)
     
     st_folium(m, width=800, height=600)
 
